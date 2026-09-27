@@ -7,6 +7,7 @@ import { extrahiere } from './extraktor.js';
 import { parserFuer } from './parser.js';
 import { extrahiereBilder } from './bilder.js';
 import { leeresAngebot } from './modell.js';
+import { korrigiere } from './korrekturen.js';
 
 export class ImportFehler extends Error {
   constructor(text, ursache) {
@@ -35,7 +36,7 @@ export async function lese(bytes, { pdfjs, PDFLib }) {
       return { angebot: leeresAngebot(), seitenOhneText: text.pagesNeedingOCR,
                seitenzahl: text.pageCount, erkannt: false };
     }
-    const angebot = parser.parse(text);
+    const angebot = korrigiere(parser.parse(text));
     try {
       const bilder = await extrahiereBilder(PDFLib, bytes, parser.imagePages(text), {
         reihenfolge: parser.bildReihenfolge ?? 'name',

@@ -1,7 +1,7 @@
 // Erzeugt von werkzeuge/sw-bauen.mjs — nicht von Hand ändern.
 // Hält die App offline bereit. Es werden nur die eigenen Dateien zwischengespeichert;
 // Angebote und Einseiter landen nie im Cache.
-const VERSION = '68576fb8cdda';
+const VERSION = '662247fd938e';
 const DATEIEN = [
   "./",
   "app.css",
@@ -15,6 +15,7 @@ const DATEIEN = [
   "kern/extraktor.js",
   "kern/highlights.js",
   "kern/import.js",
+  "kern/korrekturen.js",
   "kern/modell.js",
   "kern/nachruestung.js",
   "kern/parser-gebraucht.js",

@@ -1,6 +1,6 @@
 // Liest Gebrauchtwagen-Exposés „BMW Premium Selection", wie Faba Autowelt sie erstellt.
 //
-// Aufbau (Beispiel 087563_02-09-2026.pdf, BMW i4):
+// Aufbau (Beispiel <Fahrzeugnr>_<Datum>.pdf, BMW i4):
 //   Seite 1   Kopf mit Händler, Titel, großes Foto, Eckdaten als „Bezeichner: | Wert"
 //   Seite 2–3 „Serienausstattung" als Aufzählung (•), gegliedert in Unterabschnitte
 //   Seite 4–6 „Ausstattung" (die gewählte Sonderausstattung), ebenso
@@ -163,7 +163,7 @@ function eckdaten(a, s) {
   a.vehicle.previousOwners = Zahlen.ganzzahl(wert(s, 'Vorbesitzer:'));
   a.offer.offerNumber = wert(s, 'Fahrzeugnummer:');
 
-  // Datum steht in der Fußzeile: „02.09.2026 | 087563 | Seite 1/10"
+  // Datum steht in der Fußzeile: „TT.MM.JJJJ | Fahrzeugnr. | Seite 1/10"
   const fuss = s.lines.find(z => /Seite\s+\d+\/\d+/.test(zeilenText(z)));
   a.offer.offerDate = fuss ? Zahlen.datum(zeilenText(fuss)) : null;
 }
