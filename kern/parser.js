@@ -7,6 +7,7 @@ import * as Zahlen from './zahlen.js';
 import { leeresAngebot, leereLeasingOption, isDisplayable } from './modell.js';
 import { zeilenText, enthaelt, gleich } from './extraktor.js';
 import { waehlen } from './highlights.js';
+import { BMWPremiumSelectionParser } from './parser-gebraucht.js';
 
 // Spaltengrenzen: links Codes, Mitte Bezeichnungen, rechts Beträge.
 const CODE_SPALTE_BIS = 100;
@@ -394,5 +395,6 @@ const istRad = n =>
 const istPolster = n =>
   ['Leder', 'Stoff', 'Alcantara', 'Vernasca', 'Merino', 'Sensatec'].some(h => enthaelt(n, h));
 
-export const ALLE_PARSER = [BMWFabaParser];
+// Reihenfolge = Rangfolge. Der erste, der zusagt, bekommt das Dokument.
+export const ALLE_PARSER = [BMWFabaParser, BMWPremiumSelectionParser];
 export const parserFuer = doc => ALLE_PARSER.find(p => p.canHandle(doc)) ?? null;

@@ -5,6 +5,7 @@
 export const MINDESTENS = 8;
 export const HOECHSTENS = 14;
 
+
 const RANGFOLGE = [
   [1, ['Package', 'Paket']],
   [2, ['Assistant', 'Assistent', 'Driving', 'Parking', 'Head-Up', 'Head Up']],
@@ -28,6 +29,9 @@ const SPERRLISTE = [
   'Ablagenpaket', 'Ablage für Wireless Charging', 'Lordosenstütze', 'Galvanikapplikation',
   'Aktiver Fußgängerschutz', 'Active Guard', 'Sicherheitsgurte', 'Alarmanlage',
   'Innen- und Außenspiegelpaket', 'Innenspiegel automatisch', 'Geschwindigkeitsregelung',
+  // Gebrauchtwagen-Exposés
+  'Spiegel-Paket', 'Ablage-Paket', 'Reifen-Reparaturset', 'Beifahrerairbag-Deaktivierung',
+  'Fussgängerschutz', 'Fußgängerschutz', 'Surround-Kamera', 'Surround View',
 ];
 
 const enthaelt = (text, teil) => text.toLocaleLowerCase('de').includes(teil.toLocaleLowerCase('de'));
@@ -37,7 +41,12 @@ function rang(name) {
   return null;
 }
 
-export function waehlen(ausstattung) {
+/**
+ * @param jeRang  im ersten Durchgang höchstens so viele Einträge je Themengruppe.
+ *                OFCO-Angebote: unbegrenzt (wie das Swift-Original). Exposés: 4 —
+ *                dort stehen Assistenten einzeln und würden sonst alles verdrängen.
+ */
+export function waehlen(ausstattung, { jeRang = Infinity } = {}) {
   const bewertet = [];
   for (const p of ausstattung) {
     if (p.category === 'dealerService') continue;
@@ -50,15 +59,38 @@ export function waehlen(ausstattung) {
   // Namensvergleich wie Swift `<` auf String: nach Unicode-Codepunkten, nicht locale.
   bewertet.sort((a, b) => a.r - b.r || b.preis - a.preis || (a.p.name < b.p.name ? -1 : a.p.name > b.p.name ? 1 : 0));
 
+  // Zwei Durchgänge: erst höchstens JE_RANG Einträge pro Themengruppe, damit nicht
+  // sieben Assistenten das Soundsystem verdrängen — danach der Rest nach Rang.
   const ergebnis = [];
-  const gesehen = new Set();
-  for (const { p } of bewertet) {
-    if (ergebnis.length >= HOECHSTENS) break;
-    const k = p.name.toLowerCase();
-    if (gesehen.has(k)) continue;
-    gesehen.add(k);
-    ergebnis.push(p);
+  const gesehen = [];
+  const anzahl = new Map();
+  for (const durchgang of [1, 2]) {
+    for (const { p, r } of bewertet) {
+      if (ergebnis.length >= HOECHSTENS) break;
+      if (ergebnis.includes(p)) continue;
+      if (durchgang === 1 && (anzahl.get(r) ?? 0) >= jeRang) continue;
+      const k = schluessel(p.name);
+      // Doppelte und fast doppelte Bezeichnungen vermeiden:
+      // „M Sportpaket" ⊂ „M Sportpaket Pro", „M Sport Pro Paket" = „M Sportpaket Pro" umgestellt.
+      if (gesehen.some(g => g.text === k.text || g.buchstaben === k.buchstaben
+        || (k.text.length >= 6 && g.text.includes(k.text))
+        || (g.text.length >= 6 && k.text.includes(g.text)))) continue;
+      gesehen.push(k);
+      ergebnis.push(p);
+      anzahl.set(r, (anzahl.get(r) ?? 0) + 1);
+    }
+  }
+  // Anzeige in Rangfolge, nicht in Durchgangsfolge (stabil innerhalb eines Rangs).
+  if (jeRang !== Infinity) {
+    const pos = new Map(bewertet.map((e, i) => [e.p, i]));
+    ergebnis.sort((a, b) => pos.get(a) - pos.get(b));
   }
   // Weniger als MINDESTENS heißt: weniger zeigen. Nicht auffüllen.
   return ergebnis;
+}
+
+/** Nur Buchstaben und Ziffern, klein — und dieselben Zeichen sortiert (gegen Umstellungen). */
+function schluessel(name) {
+  const text = name.toLocaleLowerCase('de').replace(/[^a-z0-9äöüß]/g, '');
+  return { text, buchstaben: [...text].sort().join('') };
 }

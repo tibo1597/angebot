@@ -16,7 +16,7 @@ import fontkit from '../vendor/fontkit.es.min.js';
 import * as Zahlen from './zahlen.js';
 import {
   highlights, addressLine, displayName, isElectric, powerText,
-  isWithoutDownPayment, isDisplayable,
+  isWithoutDownPayment, isDisplayable, istFinanzierung, istGebraucht,
 } from './modell.js';
 import { analysiere } from './bildpunkte.js';
 
@@ -310,7 +310,7 @@ class Blatt {
 
 // MARK: - Bilder vorbereiten
 
-async function bereiteBildVor(pdf, bild) {
+async function bereiteBildVor(pdf, bild, { freistellen = true } = {}) {
   if (!bild?.data?.length) return null;
   // Immer als eigener Speicherblock: pdf-lib liest JPEG-Daten ab Offset 0 des
   // Puffers — ein Ausschnitt (subarray) würde als „SOI not found" scheitern.
@@ -325,7 +325,9 @@ async function bereiteBildVor(pdf, bild) {
   const analyse = await analysiere(daten, istPNG ? 'image/png' : 'image/jpeg');
   const breite = analyse?.breite ?? pdfBild.width;
   const hoehe = analyse?.hoehe ?? pdfBild.height;
-  const zuschnitt = analyse?.zuschnitt ?? { x: 0, y: 0, w: breite, h: hoehe };
+  // Gebrauchtwagen-Fotos haben einen echten Hintergrund. Ein Zuschnitt nach
+  // „weißem Rand" könnte dort Himmel oder Hallenwand für Rand halten.
+  const zuschnitt = (freistellen && analyse?.zuschnitt) || { x: 0, y: 0, w: breite, h: hoehe };
   return { pdfBild, breite, hoehe, zuschnitt, caption: bild.caption ?? null };
 }
 
@@ -350,7 +352,8 @@ export async function renderEinseiter(angebot) {
   blatt.fuelle({ x: 0, y: 0, w: SEITENGROESSE.breite, h: SEITENGROESSE.hoehe }, Farben.weiss);
 
   const bilder = [];
-  for (const b of angebot.images ?? []) bilder.push(await bereiteBildVor(pdf, b));
+  const freistellen = !istGebraucht(angebot);
+  for (const b of angebot.images ?? []) bilder.push(await bereiteBildVor(pdf, b, { freistellen }));
 
   zeichne(angebot, blatt, bilder);
   return pdf.save();
@@ -386,7 +389,7 @@ function kopf(a, blatt, y, breite) {
 
   // Links: Angebot, Fahrzeug, Variante
   let linksY = y;
-  linksY += blatt.text('Angebot',
+  linksY += blatt.text(istGebraucht(a) ? 'Gebrauchtwagen-Angebot' : 'Angebot',
     textstil({ groesse: 8, farbe: Farben.grauText, laufweite: 1.6, versalien: true }), RAND, linksY, linkeBreite);
   linksY += 3;
 
@@ -442,10 +445,17 @@ function mitte(a, blatt, y, bilder) {
 
 function angebotskasten(a, blatt, x, y, breite) {
   const zeilen = [];
-  if (a.offer.offerNumber != null) zeilen.push(['dokument', 'Angebot Nr.', a.offer.offerNumber]);
   const datum = Zahlen.datumsText(a.offer.offerDate);
-  if (datum) zeilen.push(['kalender', 'Angebotsdatum', datum]);
-  if (a.offer.customerNumber != null) zeilen.push(['person', 'Kundennummer', a.offer.customerNumber]);
+  if (istGebraucht(a)) {
+    if (a.offer.offerNumber != null) zeilen.push(['dokument', 'Fahrzeug-Nr.', a.offer.offerNumber]);
+    if (datum) zeilen.push(['kalender', 'Angebotsdatum', datum]);
+    const ez = monatJahr(a.vehicle.firstRegistration);
+    if (ez) zeilen.push(['auto', 'Erstzulassung', ez]);
+  } else {
+    if (a.offer.offerNumber != null) zeilen.push(['dokument', 'Angebot Nr.', a.offer.offerNumber]);
+    if (datum) zeilen.push(['kalender', 'Angebotsdatum', datum]);
+    if (a.offer.customerNumber != null) zeilen.push(['person', 'Kundennummer', a.offer.customerNumber]);
+  }
   if (!zeilen.length) return;
 
   const zeilenhoehe = 23;
@@ -465,7 +475,59 @@ function angebotskasten(a, blatt, x, y, breite) {
 }
 
 /** Welche vier Eckdaten gezeigt werden, hängt am Antrieb. */
+/** "2023-08-24" → "08/2023" */
+function monatJahr(iso) {
+  const t = iso ? String(iso).match(/^(\d{4})-(\d{2})/) : null;
+  return t ? `${t[2]}/${t[1]}` : null;
+}
+
+/** Gebrauchtwagen: Leistung, Antriebsart, Historie — nur Belegtes. */
+function eckdatenGebraucht(a) {
+  const t = a.technicalData;
+  const v = a.vehicle;
+  const ergebnis = [];
+
+  const antrieb = [];
+  if (t.driveDescription != null) antrieb.push(t.driveDescription);
+  const leistung = powerText(t);
+  if (leistung) antrieb.push(leistung);
+  const art = [t.fuelType, t.transmission].filter(w => w != null);
+  if (art.length) antrieb.push(art.join(' · '));
+  if (antrieb.length) ergebnis.push({ symbol: isElectric(t) ? 'stecker' : 'motor', titel: 'Antrieb', werte: antrieb });
+
+  const historie = [];
+  const km = Zahlen.ganzzahlText(v.mileageKM);
+  if (km) historie.push(`${km} km`);
+  const zweite = [];
+  const ez = monatJahr(v.firstRegistration);
+  if (ez) zweite.push(`EZ ${ez}`);
+  if (v.previousOwners != null) zweite.push(`${v.previousOwners} Vorbesitzer`);
+  if (zweite.length) historie.push(zweite.join(' · '));
+  if (v.inspection != null) historie.push(`HU ${v.inspection}`);
+  if (historie.length) ergebnis.push({ symbol: 'tacho', titel: 'Laufleistung', werte: historie });
+
+  if (isElectric(t)) {
+    const reichweite = Zahlen.ganzzahlText(t.electricRangeKM);
+    if (reichweite) ergebnis.push({ symbol: 'akku', titel: 'Elektrische Reichweite (WLTP)', werte: [`bis zu ${reichweite} km`] });
+    const laden = [];
+    if (t.chargingACkW != null) laden.push(`AC-Laden bis zu ${t.chargingACkW} kW`);
+    if (t.chargingDCkW != null) laden.push(`DC-Laden bis zu ${t.chargingDCkW} kW`);
+    if (laden.length) ergebnis.push({ symbol: 'stecker', titel: 'Laden', werte: laden });
+  }
+  const verbrauch = Zahlen.zahl(t.consumptionCombined);
+  if (verbrauch) ergebnis.push({ symbol: 'tropfen', titel: 'Verbrauch (WLTP)', werte: [`${verbrauch} l/100 km`] });
+  const co2 = Zahlen.ganzzahlText(t.co2Combined);
+  if (co2) ergebnis.push({ symbol: 'wolke', titel: 'CO₂ (WLTP)', werte: [`${co2} g/km`] });
+
+  const ausstattung = [v.exteriorColor, v.interior].filter(w => w != null);
+  if (ergebnis.length < 4 && ausstattung.length) {
+    ergebnis.push({ symbol: 'auto', titel: 'Farbe und Polster', werte: ausstattung });
+  }
+  return ergebnis.slice(0, 4);
+}
+
 function eckdaten(a) {
+  if (istGebraucht(a)) return eckdatenGebraucht(a);
   const t = a.technicalData;
   const ergebnis = [];
 
@@ -542,7 +604,97 @@ function unten(a, blatt, y) {
   const rechteX = RAND + linkeBreite + 16;
   const rechteBreite = SEITENGROESSE.breite - RAND - rechteX;
   highlightsBlock(a, blatt, RAND, y, linkeBreite);
-  leasingkasten(a, blatt, rechteX, y, rechteBreite);
+  const finanzierung = a.leasingOptions.find(l => istFinanzierung(l) && isDisplayable(l));
+  if (finanzierung) finanzierungskasten(finanzierung, blatt, rechteX, y, rechteBreite);
+  else leasingkasten(a, blatt, rechteX, y, rechteBreite);
+}
+
+/**
+ * Finanzierung: große Monatsrate und — gleichrangig daneben — der effektive
+ * Jahreszins (bei Kreditwerbung Pflichtangabe). Darunter die Eckwerte und das
+ * Kleingedruckte. Das Kleingedruckte wird nie gekürzt: Reicht der Platz nicht,
+ * entfallen zuerst die Eckwerte, dann wird die Schrift kleiner.
+ */
+function finanzierungskasten(f, blatt, x, y, breite) {
+  const ohneAnzahlung = isWithoutDownPayment(f);
+  const titel = ohneAnzahlung ? 'Finanzierungsangebot ohne Anzahlung' : 'Finanzierungsangebot';
+
+  const kopfhoehe = 17;
+  blatt.fuelleOben(x, y, breite, kopfhoehe, Farben.dunkelblau);
+  blatt.text(titel,
+    textstil({ schrift: 'fett', groesse: 8.2, farbe: Farben.weiss, laufweite: 0.6, ausrichtung: 'center', versalien: true }),
+    x, y + 4.8, breite);
+
+  let zeileY = y + kopfhoehe + 14;
+  const kopfzeile = [
+    f.durationMonths != null ? `${f.durationMonths} Monate` : null,
+    f.annualMileage != null ? `${Zahlen.ganzzahlText(f.annualMileage)} km p.a.` : null,
+  ].filter(Boolean).join(' · ');
+  if (kopfzeile) {
+    zeileY += blatt.text(kopfzeile, textstil({ schrift: 'fett', groesse: 8.4, ausrichtung: 'center', versalien: true }),
+      x, zeileY, breite);
+  }
+  zeileY += 8;
+
+  // Rate und effektiver Jahreszins — gleich groß, nebeneinander
+  const rate = Zahlen.betrag(f.monthlyGross);
+  // Zinssätze immer mit zwei Nachkommastellen, wie im Dokument („2,10 %").
+  const prozent = w => `${Zahlen.betrag(w, false)} %`;
+  const zins = f.effectiveRate != null ? prozent(f.effectiveRate) : null;
+  const kaesten = [
+    rate && [rate, 'Monatliche Rate', Farben.blauFlaeche, Farben.akzentblau],
+    zins && [zins, 'Effektiver Jahreszins', Farben.grauFlaeche, Farben.text],
+  ].filter(Boolean);
+  const kastenHoehe = 40;
+  const innen = 4;
+  const kastenBreite = (breite - 2 * innen - (kaesten.length - 1) * 6) / kaesten.length;
+  kaesten.forEach(([wert, bezeichnung, flaeche, schriftfarbe], i) => {
+    const kx = x + innen + i * (kastenBreite + 6);
+    blatt.fuelleOben(kx, zeileY, kastenBreite, kastenHoehe, flaeche);
+    const stil = textstil({ schrift: 'fett', groesse: 15.5, farbe: schriftfarbe, ausrichtung: 'center', zeilenabstand: 1.05 });
+    while (stil.groesse > 9 && blatt.breiteVon(wert, stil) > kastenBreite - 6) stil.groesse -= 0.5;
+    blatt.text(wert, stil, kx, zeileY + 7 + (15.5 - stil.groesse) / 2, kastenBreite);
+    blatt.text(bezeichnung,
+      textstil({ schrift: 'mittel', groesse: 6.4, farbe: Farben.grauText, laufweite: 0.8, ausrichtung: 'center', versalien: true }),
+      kx, zeileY + kastenHoehe - 11, kastenBreite);
+  });
+  if (kaesten.length) zeileY += kastenHoehe;
+
+  // Eckwerte: Laufzeit · Anzahlung · Schlussrate (· Sollzins)
+  const eckwerte = [];
+  if (f.durationMonths != null) eckwerte.push(['Laufzeit', `${f.durationMonths} Monate`]);
+  if (f.downPayment != null) eckwerte.push(['Anzahlung', Zahlen.betrag(f.downPayment)]);
+  if (f.balloonPayment != null) eckwerte.push(['Schlussrate', Zahlen.betrag(f.balloonPayment)]);
+  if (f.nominalRate != null && eckwerte.length < 4) eckwerte.push(['Sollzins p. a.', prozent(f.nominalRate)]);
+
+  const etikettStil = textstil({ schrift: 'fett', groesse: 6.6, farbe: Farben.grauText, laufweite: 0.4, ausrichtung: 'center', versalien: true });
+  const wertStil = textstil({ schrift: 'fett', groesse: 8.4, ausrichtung: 'center' });
+  const eckHoehe = eckwerte.length ? 14 + zeilenmass(etikettStil).hoehe(1) + zeilenmass(wertStil).hoehe(1) : 0;
+
+  const ende = PREISBLOCK_Y - 4;
+  let kleinstil = textstil({ groesse: 5.2, farbe: Farben.grauText, zeilenabstand: 1.35 });
+  const kleinHoehe = st => (f.disclaimer ? blatt.hoeheVon(f.disclaimer, st, breite) + 8 : 0);
+
+  const mitEckwerten = zeileY + eckHoehe + kleinHoehe(kleinstil) <= ende;
+  if (mitEckwerten && eckwerte.length) {
+    zeileY += 12;
+    const spalte = breite / eckwerte.length;
+    eckwerte.forEach(([etikett, wert], i) => {
+      const sx = x + i * spalte;
+      if (i > 0) blatt.linie({ x: sx, y: zeileY }, { x: sx, y: zeileY + eckHoehe - 14 }, Farben.hellgrau);
+      const h = blatt.text(etikett, etikettStil, sx + 2, zeileY, spalte - 4);
+      blatt.text(wert, wertStil, sx + 2, zeileY + h, spalte - 4);
+    });
+    zeileY += eckHoehe - 12;
+  }
+
+  if (f.disclaimer) {
+    // Vollständig — lieber kleiner als gekürzt.
+    while (kleinstil.groesse > 4.2 && zeileY + kleinHoehe(kleinstil) > ende) {
+      kleinstil = { ...kleinstil, groesse: +(kleinstil.groesse - 0.2).toFixed(1) };
+    }
+    blatt.text(f.disclaimer, kleinstil, x, zeileY + 8, breite);
+  }
 }
 
 function highlightsBlock(a, blatt, x, y, breite) {
@@ -569,7 +721,7 @@ function highlightsBlock(a, blatt, x, y, breite) {
 }
 
 function leasingkasten(a, blatt, x, y, breite) {
-  const spalten = a.leasingOptions.filter(isDisplayable);
+  const spalten = a.leasingOptions.filter(l => !istFinanzierung(l) && isDisplayable(l));
   if (!spalten.length) return;
 
   // „Ohne Anzahlung" nur, wenn die Sonderzahlung wirklich 0,00 € ist.
@@ -716,7 +868,66 @@ function vorteile(blatt, x, y, breite, spalten, zeichnen = true) {
 
 // MARK: - Preisblock
 
+/** Gebrauchtwagen: ehemaliger Listenpreis, Preis groß, rechts der Nettopreis. */
+function preisblockGebraucht(a, blatt, y, breite) {
+  const p = a.pricing;
+  const hoehe = 66;
+  blatt.rahmen(blatt.kasten(RAND, y, breite, hoehe), Farben.hellgrau);
+
+  const netto = Zahlen.betrag(p.netTotal);
+  const ust = Zahlen.betrag(p.vat);
+  const rechtsDa = Boolean(netto || ust);
+  const linkeBreite = rechtsDa ? breite * 0.58 : breite;
+  const innen = 10;
+  const spaltenBreite = linkeBreite - 2 * innen;
+  if (rechtsDa) {
+    blatt.linie({ x: RAND + linkeBreite, y: y + 8 }, { x: RAND + linkeBreite, y: y + hoehe - 8 }, Farben.hellgrau);
+  }
+
+  let zeileY = y + 10;
+  const listenpreis = Zahlen.betrag(p.grossListPrice);
+  if (listenpreis) {
+    blatt.text('Ehemaliger Listenpreis (Neuwagen)', textstil({ groesse: 7.4, farbe: Farben.grauText, laufweite: 0.3, versalien: true }),
+      RAND + innen, zeileY, spaltenBreite);
+    zeileY += blatt.text(listenpreis, textstil({ groesse: 7.4, farbe: Farben.grauText, ausrichtung: 'right' }),
+      RAND + innen, zeileY, spaltenBreite) + 2.4;
+  }
+
+  const gesamt = Zahlen.betrag(p.grossTotal);
+  if (gesamt) {
+    zeileY = Math.max(zeileY + 2, y + 26);
+    blatt.trennlinie(RAND + innen, zeileY, spaltenBreite, Farben.text, 0.9);
+    zeileY += 5;
+    zeichneSymbol(blatt.seite, 'euro', blatt.kasten(RAND + innen, zeileY + 2.2, 12, 12), Farben.akzentblau);
+    blatt.text('Preis', textstil({ schrift: 'fett', groesse: 12, laufweite: 0.4, versalien: true }),
+      RAND + innen + 17, zeileY, spaltenBreite - 17);
+    const h = blatt.text(gesamt, textstil({ schrift: 'fett', groesse: 16, ausrichtung: 'right' }),
+      RAND + innen, zeileY - 2, spaltenBreite);
+    blatt.text('inkl. MwSt.', textstil({ groesse: 5.8, farbe: Farben.grauText, ausrichtung: 'right' }),
+      RAND + innen, zeileY + h - 3, spaltenBreite);
+  }
+
+  if (!rechtsDa) return;
+  const rechteX = RAND + linkeBreite + innen;
+  const rechteSpalte = breite - linkeBreite - 2 * innen;
+  let rechtsY = y + 14;
+  if (netto) {
+    blatt.text('Nettopreis', textstil({ schrift: 'mittel', groesse: 7.4, laufweite: 0.3, versalien: true }),
+      rechteX, rechtsY, rechteSpalte);
+    rechtsY += blatt.text(netto, textstil({ schrift: 'mittel', groesse: 7.8, ausrichtung: 'right' }),
+      rechteX, rechtsY, rechteSpalte) + 7;
+  }
+  if (ust) {
+    const satz = p.vatRate != null ? `Enthaltene Umsatzsteuer (${p.vatRate} %)` : 'Enthaltene Umsatzsteuer';
+    blatt.text(satz, textstil({ groesse: 6.6, farbe: Farben.grauText }), rechteX, rechtsY, rechteSpalte);
+    rechtsY += blatt.text(ust, textstil({ groesse: 6.8, ausrichtung: 'right' }), rechteX, rechtsY, rechteSpalte) + 7;
+  } else if (p.vatDeductible) {
+    blatt.text('MwSt. ausweisbar', textstil({ groesse: 6.6, farbe: Farben.grauText }), rechteX, rechtsY, rechteSpalte);
+  }
+}
+
 function preisblock(a, blatt, y, breite) {
+  if (istGebraucht(a)) return preisblockGebraucht(a, blatt, y, breite);
   const p = a.pricing;
   const hoehe = 66;
   blatt.rahmen(blatt.kasten(RAND, y, breite, hoehe), Farben.hellgrau);
@@ -816,8 +1027,9 @@ function fussleiste(a, blatt, y, breite) {
   const rechtsX = RAND + 2 * spalten;
   zeichneSymbol(blatt.seite, 'auto', blatt.kasten(rechtsX + 6, y + 12, 16, 12), Farben.weiss);
   blatt.text('Fahrzeug', titelstil, rechtsX + 28, y + 9, spalten - 34);
-  const fahrzeugzeilen = [a.vehicle.vin != null ? `FIN ${a.vehicle.vin}` : null, a.vehicle.exteriorColor]
-    .filter(w => w != null);
+  const kennung = a.vehicle.vin != null ? `FIN ${a.vehicle.vin}`
+    : istGebraucht(a) && a.offer.offerNumber != null ? `Fahrzeug-Nr. ${a.offer.offerNumber}` : null;
+  const fahrzeugzeilen = [kennung, a.vehicle.exteriorColor].filter(w => w != null);
   if (fahrzeugzeilen.length) {
     blatt.text(fahrzeugzeilen.join('\n'), textstilWeiss, rechtsX + 28, y + 18, spalten - 32);
   }

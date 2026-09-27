@@ -12,8 +12,12 @@ import { neueId } from './modell.js';
  * @param bytes   die PDF-Datei
  * @param seiten  erlaubte Seitenindizes (Angebotsteil), oder null für alle
  */
-export async function extrahiereBilder(PDFLib, bytes, seiten = null, mindestBreite = 300) {
-  const { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFArray } = PDFLib;
+/**
+ * @param optionen.reihenfolge  'name'      — nach XObject-Namen (wie CoreGraphics; OFCO-Angebote)
+ *                              'zeichnung' — in der Reihenfolge, in der die Seite sie zeichnet
+ */
+export async function extrahiereBilder(PDFLib, bytes, seiten = null, { reihenfolge = 'name', mindestBreite = 300 } = {}) {
+  const { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFArray, decodePDFRawStream } = PDFLib;
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
   const bilder = [];
   const gesehen = new Set();
@@ -25,14 +29,29 @@ export async function extrahiereBilder(PDFLib, bytes, seiten = null, mindestBrei
     return w && typeof w.asNumber === 'function' ? w.asNumber() : null;
   };
 
-  function durchsuche(ressourcen, seitenIndex, tiefe) {
+  /** Namen der XObjects in der Reihenfolge der `Do`-Befehle im Seiteninhalt. */
+  function zeichenfolge(seite) {
+    try {
+      const inhalt = seite.node.Contents();
+      const stroeme = inhalt instanceof PDFArray
+        ? inhalt.asArray().map(r => doc.context.lookup(r)) : [inhalt];
+      const text = stroeme.map(st => new TextDecoder('latin1').decode(decodePDFRawStream(st).decode())).join('\n');
+      return [...text.matchAll(/\/([^\s/<>\[\]()]+)\s+Do\b/g)].map(m => `/${m[1]}`);
+    } catch {
+      return [];
+    }
+  }
+
+  function durchsuche(ressourcen, seitenIndex, tiefe, folge = []) {
     if (!(ressourcen instanceof PDFDict) || tiefe > 4) return;
     const xobjekte = ressourcen.lookup(PDFName.of('XObject'));
     if (!(xobjekte instanceof PDFDict)) return;
-    // Nach Namen sortiert (img0, img2, img3 …) — so liest es auch CoreGraphics,
-    // und so steht die Heckansicht vor den Innenraumbildern.
-    const eintraege = xobjekte.entries()
-      .sort(([a], [b]) => a.toString().localeCompare(b.toString(), 'en', { numeric: true }));
+    // 'name': sortiert wie CoreGraphics (img0, img2, img3 …) — so steht beim OFCO-Angebot
+    // die Heckansicht vor den Innenraumbildern. 'zeichnung': wie auf der Seite gezeichnet.
+    const rang = n => { const i = folge.indexOf(n); return i < 0 ? Infinity : i; };
+    const eintraege = xobjekte.entries().sort(([a], [b]) => reihenfolge === 'zeichnung'
+      ? rang(a.toString()) - rang(b.toString())
+      : a.toString().localeCompare(b.toString(), 'en', { numeric: true }));
     for (const [, ref] of eintraege) {
       const stream = doc.context.lookup(ref);
       if (!(stream instanceof PDFRawStream)) continue;
@@ -67,7 +86,7 @@ export async function extrahiereBilder(PDFLib, bytes, seiten = null, mindestBrei
 
   doc.getPages().forEach((seite, i) => {
     if (erlaubt && !erlaubt.has(i)) return;
-    durchsuche(seite.node.Resources(), i, 0);
+    durchsuche(seite.node.Resources(), i, 0, reihenfolge === 'zeichnung' ? zeichenfolge(seite) : []);
   });
   return bilder;
 }

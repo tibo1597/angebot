@@ -37,7 +37,10 @@ export async function lese(bytes, { pdfjs, PDFLib }) {
     }
     const angebot = parser.parse(text);
     try {
-      angebot.images = await extrahiereBilder(PDFLib, bytes, parser.imagePages(text));
+      const bilder = await extrahiereBilder(PDFLib, bytes, parser.imagePages(text), {
+        reihenfolge: parser.bildReihenfolge ?? 'name',
+      });
+      angebot.images = parser.bildFilter ? bilder.filter(parser.bildFilter) : bilder;
     } catch {
       angebot.images = []; // Ohne Bilder geht es weiter; der Validator meldet es.
     }

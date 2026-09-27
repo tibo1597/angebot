@@ -321,3 +321,12 @@ button.zeile.gefahr { color: var(--gefahr); }
 .nur-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 .technik { font-size: 12px; color: var(--leise); margin-top: 24px !important; word-break: break-word; user-select: text; -webkit-user-select: text; }
+
+/* Schalter und Umschalter */
+.schalter { width: 22px; height: 22px; accent-color: var(--akzent); flex: 0 0 auto; }
+.segmente { display: inline-flex; background: var(--grund); border-radius: 9px; padding: 2px; flex: 0 0 auto; }
+.segment { border: 0; background: none; padding: 6px 12px; border-radius: 7px; font-size: 15px; cursor: pointer; color: var(--text); min-height: 32px; }
+.segment.an { background: var(--flaeche); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); font-weight: 600; }
+
+/* Safari setzt den Datumswert sonst mittig. */
+.zeile input[type="date"]::-webkit-date-and-time-value { text-align: right; }

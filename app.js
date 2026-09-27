@@ -3,7 +3,7 @@
 // Browser erzeugt. Die Seite baut keine Verbindung nach außen auf (siehe CSP).
 
 import * as Zahlen from './kern/zahlen.js';
-import { leeresAngebot, leereLeasingOption, highlights, displayName, isElectric, neueId } from './kern/modell.js';
+import { leeresAngebot, leereLeasingOption, highlights, displayName, isElectric, neueId, istFinanzierung, istGebraucht } from './kern/modell.js';
 import { pruefe } from './kern/validator.js';
 import { MINDESTENS, HOECHSTENS } from './kern/highlights.js';
 
@@ -217,6 +217,10 @@ const ABSCHNITTE = [
     ['vehicle', 'exteriorColor', 'Farbe', 'lang'],
     ['vehicle', 'wheels', 'Räder', 'lang'],
     ['vehicle', 'interior', 'Interieur', 'lang'],
+    ['vehicle', 'firstRegistration', 'Erstzulassung', 'datum', null, 'gebraucht'],
+    ['vehicle', 'mileageKM', 'Kilometerstand', 'ganz', 'km', 'gebraucht'],
+    ['vehicle', 'previousOwners', 'Vorbesitzer', 'ganz', null, 'gebraucht'],
+    ['vehicle', 'inspection', 'HU', 'text', null, 'gebraucht'],
   ]],
   ['@links'],
   ['Technik', [
@@ -235,17 +239,21 @@ const ABSCHNITTE = [
     ['technicalData', 'chargingDCkW', 'Laden DC', 'ganz', 'kW', 'elektro'],
   ]],
   ['Preise', [
-    ['pricing', 'modelPrice', 'Modell', 'betrag'],
-    ['pricing', 'equipmentPrice', 'Ausstattung', 'betrag'],
-    ['pricing', 'grossListPrice', 'Listenpreis brutto', 'betrag'],
-    ['pricing', 'netListPrice', 'Listenpreis netto', 'betrag'],
-    ['pricing', 'discount', 'Nachlass', 'betrag'],
-    ['pricing', 'dealerServices', 'Händlerleistungen', 'betrag'],
-    ['pricing', 'accessories', 'Zubehör', 'betrag'],
-    ['pricing', 'grossTotal', 'Gesamt brutto', 'betrag'],
-    ['pricing', 'netTotal', 'Gesamt netto', 'betrag'],
-    ['pricing', 'vat', 'MwSt', 'betrag'],
-    ['pricing', 'vatRate', 'MwSt-Satz', 'ganz', '%'],
+    ['pricing', 'modelPrice', 'Modell', 'betrag', null, 'neu'],
+    ['pricing', 'equipmentPrice', 'Ausstattung', 'betrag', null, 'neu'],
+    ['pricing', 'grossListPrice', 'Listenpreis brutto', 'betrag', null, 'neu'],
+    ['pricing', 'netListPrice', 'Listenpreis netto', 'betrag', null, 'neu'],
+    ['pricing', 'discount', 'Nachlass', 'betrag', null, 'neu'],
+    ['pricing', 'dealerServices', 'Händlerleistungen', 'betrag', null, 'neu'],
+    ['pricing', 'accessories', 'Zubehör', 'betrag', null, 'neu'],
+    ['pricing', 'grossTotal', 'Gesamt brutto', 'betrag', null, 'neu'],
+    ['pricing', 'netTotal', 'Gesamt netto', 'betrag', null, 'neu'],
+    ['pricing', 'vat', 'MwSt', 'betrag', null, 'neu'],
+    ['pricing', 'vatRate', 'MwSt-Satz', 'ganz', '%', 'neu'],
+    ['pricing', 'grossTotal', 'Preis', 'betrag', null, 'gebraucht'],
+    ['pricing', 'netTotal', 'Nettopreis', 'betrag', null, 'gebraucht'],
+    ['pricing', 'vatDeductible', 'MwSt. ausweisbar', 'schalter', null, 'gebraucht'],
+    ['pricing', 'grossListPrice', 'Ehem. Listenpreis', 'betrag', null, 'gebraucht'],
   ]],
   ['@leasing'],
   ['Händler', [
@@ -264,9 +272,11 @@ const ABSCHNITTE = [
     ['dealer', 'contactEmail', 'E-Mail', 'text'],
   ]],
   ['Angebot', [
-    ['offer', 'offerNumber', 'Nummer', 'text'],
+    ['offer', 'kind', 'Fahrzeug', 'art'],
+    ['offer', 'offerNumber', 'Nummer', 'text', null, 'neu'],
+    ['offer', 'offerNumber', 'Fahrzeug-Nr.', 'text', null, 'gebraucht'],
     ['offer', 'offerDate', 'Datum', 'datum'],
-    ['offer', 'customerNumber', 'Kundennummer', 'text'],
+    ['offer', 'customerNumber', 'Kundennummer', 'text', null, 'neu'],
   ]],
 ];
 
@@ -283,9 +293,24 @@ const LEASING_FELDER = [
   ['provider', 'Leasinggeber', 'lang'],
 ];
 
-const LESEN = { betrag: Zahlen.dezimal, dezimal: Zahlen.dezimal, ganz: Zahlen.ganzzahl };
+const FINANZIERUNG_FELDER = [
+  ['monthlyGross', 'Monatsrate', 'betrag'],
+  ['durationMonths', 'Laufzeit', 'ganz', 'Monate'],
+  ['annualMileage', 'Laufleistung', 'ganz', 'km/Jahr'],
+  ['downPayment', 'Anzahlung', 'betrag'],
+  ['balloonPayment', 'Schlussrate', 'betrag'],
+  ['effectiveRate', 'Effektiver Jahreszins', 'prozent', '%'],
+  ['nominalRate', 'Sollzinssatz p. a.', 'prozent', '%'],
+  ['netLoanAmount', 'Nettodarlehensbetrag', 'betrag'],
+  ['totalLoanAmount', 'Darlehensgesamtbetrag', 'betrag'],
+  ['provider', 'Bank', 'lang'],
+  ['disclaimer', 'Pflichtangaben (Kleingedrucktes)', 'lang'],
+];
+
+const LESEN = { betrag: Zahlen.dezimal, dezimal: Zahlen.dezimal, prozent: Zahlen.dezimal, ganz: Zahlen.ganzzahl };
 const SCHREIBEN = {
   betrag: w => Zahlen.betrag(w, false),
+  prozent: w => Zahlen.betrag(w, false), // „2,10" — Zinssätze wie im Dokument mit zwei Stellen
   dezimal: Zahlen.zahl,
   ganz: Zahlen.ganzzahlText,
 };
@@ -309,6 +334,23 @@ function feldZeile(ziel, feld, titel, art, einheit = null) {
       befundeAktualisieren();
     });
     return el('div', { class: 'zeile lang' }, el('label', { for: id, text: titel }), t);
+  }
+
+  if (art === 'schalter') {
+    const i = el('input', { id, type: 'checkbox', class: 'schalter' });
+    i.checked = ziel[feld] === true;
+    i.addEventListener('change', () => { ziel[feld] = i.checked ? true : null; befundeAktualisieren(); });
+    return el('div', { class: 'zeile' }, el('label', { for: id, text: titel }), el('span', { class: 'wert' }), i);
+  }
+
+  if (art === 'art') {
+    // Neuwagen/Gebrauchtwagen — bestimmt, welche Felder und welcher Einseiter-Aufbau gelten.
+    const knopf = (wert, text) => el('button', {
+      class: `segment${ziel[feld] === wert ? ' an' : ''}`, text, 'aria-pressed': String(ziel[feld] === wert),
+      onclick: () => { ziel[feld] = wert; zeichne(); },
+    });
+    return el('div', { class: 'zeile' }, el('span', { class: 'titel', text: titel }), el('span', { class: 'wert' }),
+      el('div', { class: 'segmente' }, knopf('neu', 'Neuwagen'), knopf('gebraucht', 'Gebraucht')));
   }
 
   if (art === 'datum') {
@@ -405,13 +447,19 @@ function zeichneEditor() {
     }
     if (titel === '@leasing') {
       a.leasingOptions.forEach((o, n) => {
-        teile.push(gruppe(a.leasingOptions.length > 1 ? `Leasing ${n + 1}` : 'Leasing',
-          LEASING_FELDER.map(([f, t, art, e]) => feldZeile(o, f, t, art, e))));
+        const fin = istFinanzierung(o);
+        const name = fin ? 'Finanzierung' : 'Leasing';
+        teile.push(gruppe(a.leasingOptions.length > 1 ? `${name} ${n + 1}` : name,
+          (fin ? FINANZIERUNG_FELDER : LEASING_FELDER).map(([f, t, art, e]) => feldZeile(o, f, t, art, e))));
       });
-      const knoepfe = [el('button', { class: 'zeile aktion', text: 'Leasingangebot hinzufügen',
-        onclick: () => { a.leasingOptions.push(leereLeasingOption()); zeichne(); } })];
+      const knoepfe = [
+        el('button', { class: 'zeile aktion', text: 'Leasingangebot hinzufügen',
+          onclick: () => { a.leasingOptions.push(leereLeasingOption('leasing')); zeichne(); } }),
+        el('button', { class: 'zeile aktion', text: 'Finanzierung hinzufügen',
+          onclick: () => { a.leasingOptions.push(leereLeasingOption('finanzierung')); zeichne(); } }),
+      ];
       if (a.leasingOptions.length) {
-        knoepfe.push(el('button', { class: 'zeile gefahr', text: 'Letztes Leasingangebot entfernen',
+        knoepfe.push(el('button', { class: 'zeile gefahr', text: 'Letztes Angebot entfernen',
           onclick: () => { a.leasingOptions.pop(); zeichne(); } }));
       }
       teile.push(gruppe(null, knoepfe));
@@ -419,7 +467,8 @@ function zeichneEditor() {
     }
     const elektro = isElectric(a.technicalData);
     const zeilen = felder
-      .filter(([, , , , , nur]) => nur !== 'elektro' || elektro)
+      .filter(([, , , , , nur]) => (nur !== 'elektro' || elektro)
+        && (nur !== 'gebraucht' || istGebraucht(a)) && (nur !== 'neu' || !istGebraucht(a)))
       .map(([pfad, feld, t, art, e]) => feldZeile(a[pfad], feld, t, art, e));
     teile.push(gruppe(titel, zeilen));
   }
@@ -640,7 +689,16 @@ zeichne();
 
 // Offline-Fähigkeit. Nur über https bzw. localhost verfügbar.
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const hatteSteuerung = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // Neue Fassung aktiv → einmal neu laden, damit nicht der alte Stand weiterläuft.
+  // Nur auf dem Startbildschirm: Ein Angebot in Arbeit geht nie verloren.
+  let neuGeladen = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hatteSteuerung || neuGeladen) return;
+    neuGeladen = true;
+    if (z.phase === 'leer') location.reload();
+  });
 }
 
 // Nur für automatische Tests im lokalen Browser: ?test lädt eine Datei per Auswahl-Hook.

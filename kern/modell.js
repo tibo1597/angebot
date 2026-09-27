@@ -2,6 +2,9 @@
 // Grundregel: Jeder Wert ist optional. Nicht gefunden = null, niemals 0.
 //
 // Beträge: Zahl in Euro. Datum: ISO-Text "2026-09-23".
+// Neuwagen (OFCO-Angebot) und Gebrauchtwagen (Exposé „BMW Premium Selection")
+// teilen sich dieses Modell. offer.kind unterscheidet sie; fehlt es, gilt 'neu'.
+//
 // Bild: { id, data: Uint8Array, mime: 'image/jpeg'|'image/png', kind, sourcePage,
 //         pixelWidth, pixelHeight, caption }
 
@@ -12,16 +15,24 @@ export function leeresAngebot() {
     dealer: { name: null, subtitle: null, street: null, postalCode: null, city: null,
               phone: null, fax: null, website: null,
               contactPerson: null, contactPhone: null, contactEmail: null },
-    offer: { offerNumber: null, offerDate: null, printDate: null, customerNumber: null },
+    offer: { kind: 'neu', offerNumber: null, offerDate: null, printDate: null, customerNumber: null },
     vehicle: { manufacturer: null, model: null, variant: null, seriesCode: null, condition: null,
-               vin: null, exteriorColor: null, interior: null, wheels: null },
+               vin: null, exteriorColor: null, interior: null, wheels: null,
+               // nur Gebrauchtwagen:
+               firstRegistration: null,   // ISO-Datum
+               mileageKM: null,
+               previousOwners: null,
+               inspection: null,          // „neu" oder ein Datum als Text — wie im Dokument
+             },
     technicalData: { driveDescription: null, fuelType: null, drivetrain: null, transmission: null,
                      powerKW: null, powerHP: null, displacementCCM: null, cylinders: null,
                      consumptionCombined: null, co2Combined: null, accelerationSeconds: null,
                      electricRangeKM: null, chargingACkW: null, chargingDCkW: null },
     pricing: { modelPrice: null, equipmentPrice: null, grossListPrice: null, netListPrice: null,
                discount: null, dealerServices: null, accessories: null,
-               grossTotal: null, netTotal: null, vat: null, vatRate: null },
+               grossTotal: null, netTotal: null, vat: null, vatRate: null,
+               // Gebrauchtwagen: „MwSt. ausweisbar". grossListPrice ist dort der ehemalige Listenpreis.
+               vatDeductible: null },
     leasingOptions: [],
     equipment: [],
     highlightCodes: [],
@@ -29,11 +40,25 @@ export function leeresAngebot() {
   };
 }
 
-export function leereLeasingOption() {
-  return { id: neueId(), durationMonths: null, annualMileage: null, downPayment: null,
+/**
+ * Leasing ODER Finanzierung (art). Die Finanzierung nutzt dieselben Grundfelder
+ * (Laufzeit, Laufleistung, Anzahlung = downPayment, Rate = monthlyGross) plus eigene.
+ */
+export function leereLeasingOption(art = 'leasing') {
+  return { id: neueId(), art, durationMonths: null, annualMileage: null, downPayment: null,
            monthlyNet: null, monthlyGross: null, totalNet: null, totalGross: null,
-           extraMileageRateNet: null, reducedMileageRateNet: null, provider: null, disclaimer: null };
+           extraMileageRateNet: null, reducedMileageRateNet: null, provider: null, disclaimer: null,
+           // nur Finanzierung:
+           balloonPayment: null,     // Schlussrate
+           effectiveRate: null,      // effektiver Jahreszins in %
+           nominalRate: null,        // gebundener Sollzinssatz p. a. in %
+           netLoanAmount: null,      // Nettodarlehensbetrag
+           totalLoanAmount: null,    // Darlehensgesamtbetrag
+         };
 }
+
+export const istFinanzierung = l => l.art === 'finanzierung';
+export const istGebraucht = a => a.offer.kind === 'gebraucht';
 
 export function neueId() {
   return Math.random().toString(36).slice(2, 10);
@@ -74,7 +99,8 @@ export function powerText(t) {
 export const isWithoutDownPayment = l => l.downPayment === 0;
 
 /** Die Spalte ist nur zeigbar, wenn alles Wesentliche wirklich gefunden wurde. */
-export const isDisplayable = l =>
-  l.durationMonths != null && l.annualMileage != null && l.monthlyNet != null;
+export const isDisplayable = l => istFinanzierung(l)
+  ? l.durationMonths != null && l.monthlyGross != null
+  : l.durationMonths != null && l.annualMileage != null && l.monthlyNet != null;
 
 export const aspectRatio = b => (b.pixelHeight === 0 ? 1 : b.pixelWidth / b.pixelHeight);

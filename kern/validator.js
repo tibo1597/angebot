@@ -2,7 +2,7 @@
 // Grundsatz: keine stillen Korrekturen. Er sagt nur, wo hingeschaut werden muss.
 
 import { betrag } from './zahlen.js';
-import { highlights } from './modell.js';
+import { highlights, istFinanzierung } from './modell.js';
 import { MINDESTENS } from './highlights.js';
 
 const SPIELRAUM = 0.01;
@@ -78,6 +78,10 @@ function leasingproben(a) {
     return b;
   }
   a.leasingOptions.forEach((o, n) => {
+    if (istFinanzierung(o)) {
+      b.push(...finanzierungsproben(o, a.leasingOptions.length > 1 ? `Finanzierung ${n + 1}` : 'Finanzierung'));
+      return;
+    }
     const feld = a.leasingOptions.length > 1 ? `Leasing ${n + 1}` : 'Leasing';
     if (o.downPayment == null) {
       b.push(fehlt(feld, 'Die Sonderzahlung wurde nicht gefunden. Die Überschrift '
@@ -104,6 +108,23 @@ function leasingproben(a) {
       }
     }
   });
+  return b;
+}
+
+/** Kreditwerbung braucht Pflichtangaben (PAngV § 17) — fehlen sie, muss das auffallen. */
+function finanzierungsproben(o, feld) {
+  const b = [];
+  if (o.effectiveRate == null) {
+    b.push(fehlt(feld, 'Der effektive Jahreszins fehlt. Er gehört bei einem Finanzierungsangebot '
+      + 'zwingend auf das Blatt.'));
+  }
+  if (o.nominalRate == null) b.push(fehlt(feld, 'Der Sollzinssatz wurde nicht gefunden.'));
+  if (o.netLoanAmount == null) b.push(fehlt(feld, 'Der Nettodarlehensbetrag wurde nicht gefunden.'));
+  if (o.downPayment == null) b.push(fehlt(feld, 'Die Anzahlung wurde nicht gefunden.'));
+  if (o.effectiveRate != null && o.nominalRate != null && o.effectiveRate < o.nominalRate) {
+    b.push(widerspruch(feld, 'Der effektive Jahreszins ist kleiner als der Sollzinssatz — '
+      + 'vermutlich wurden die beiden vertauscht.'));
+  }
   return b;
 }
 
