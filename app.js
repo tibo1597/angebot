@@ -12,6 +12,7 @@ import { MINDESTENS, HOECHSTENS } from './kern/highlights.js';
 const z = {
   phase: 'leer',          // leer | liest | fertig | fehler
   fehler: null,
+  technik: null,          // technische Angabe zum Fehler, klein unter der Meldung
   angebot: leeresAngebot(),
   erkannt: true,
   seitenOhneText: [],
@@ -121,17 +122,23 @@ async function oeffne(datei) {
   z.phase = 'liest';
   z.ansicht = 'editor';
   zeichne();
+  let schritt = 'Datei lesen';
   try {
     const bytes = new Uint8Array(await datei.arrayBuffer());
+    schritt = 'Programmteile laden';
     const [{ lese }, l] = await Promise.all([import('./kern/import.js'), bibliotheken()]);
+    schritt = 'Angebot auswerten';
     const e = await lese(bytes, l);
     z.angebot = e.angebot;
     z.erkannt = e.erkannt;
     z.seitenOhneText = e.seitenOhneText;
     z.phase = 'fertig';
   } catch (fehler) {
-    z.fehler = fehler?.message && fehler.name !== 'TypeError'
-      ? fehler.message : 'Die Datei konnte nicht geöffnet werden.';
+    z.fehler = 'Die Datei konnte nicht geöffnet werden.';
+    // Keine Kundendaten — nur Schritt, Fehlerart und Meldung der Bibliothek.
+    const ursache = fehler?.ursache ?? fehler;
+    z.technik = `${schritt} · ${ursache?.name ?? 'Fehler'}: ${String(ursache?.message ?? ursache).slice(0, 200)}`
+      + ` · ${datei?.type || 'ohne Typ'}, ${Math.round((datei?.size ?? 0) / 1024)} KB`;
     z.phase = 'fehler';
   }
   history.replaceState({ ansicht: 'editor' }, '');
@@ -190,7 +197,8 @@ function zeichneFehler() {
     symbol('frage', 'symbol'),
     el('h2', { text: 'Nicht lesbar' }),
     el('p', { text: z.fehler }),
-    el('button', { class: 'knopf', text: 'Anderes Angebot wählen', onclick: () => $('pdf-wahl').click() })));
+    el('button', { class: 'knopf', text: 'Anderes Angebot wählen', onclick: () => $('pdf-wahl').click() }),
+    z.technik ? el('p', { class: 'technik', text: z.technik }) : null));
 }
 
 // ── Editor ───────────────────────────────────────────────────────────────

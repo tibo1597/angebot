@@ -8,7 +8,12 @@ import { parserFuer } from './parser.js';
 import { extrahiereBilder } from './bilder.js';
 import { leeresAngebot } from './modell.js';
 
-export class ImportFehler extends Error {}
+export class ImportFehler extends Error {
+  constructor(text, ursache) {
+    super(text);
+    this.ursache = ursache;
+  }
+}
 
 /**
  * @param bytes  Uint8Array der PDF-Datei
@@ -20,8 +25,8 @@ export async function lese(bytes, { pdfjs, PDFLib }) {
   try {
     // pdf.js übernimmt den Puffer — deshalb eine Kopie, pdf-lib braucht ihn danach noch.
     pdf = await pdfjs.getDocument({ data: bytes.slice(), verbosity: 0, isEvalSupported: false }).promise;
-  } catch {
-    throw new ImportFehler('Die Datei konnte nicht geöffnet werden.');
+  } catch (e) {
+    throw new ImportFehler('Die Datei konnte nicht geöffnet werden.', e);
   }
   try {
     const text = await extrahiere(pdf);

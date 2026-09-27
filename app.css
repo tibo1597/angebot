@@ -319,3 +319,5 @@ button.zeile.gefahr { color: var(--gefahr); }
 }
 
 .nur-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.technik { font-size: 12px; color: var(--leise); margin-top: 24px !important; word-break: break-word; user-select: text; -webkit-user-select: text; }
