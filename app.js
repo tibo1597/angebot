@@ -25,6 +25,8 @@ const inhalt = $('inhalt');
 
 // ── Bibliotheken: erst laden, wenn sie gebraucht werden ─────────────────
 
+import './kern/nachruestung.js'; // vor pdf.js — sonst scheitert Safari 26 an jedem Angebot
+
 let libs = null;
 async function bibliotheken() {
   if (libs) return libs;
@@ -32,7 +34,7 @@ async function bibliotheken() {
     import('./vendor/pdfjs/pdf.min.mjs'),
     import('./vendor/pdf-lib.esm.min.js'),
   ]);
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/worker.mjs', import.meta.url).href;
   libs = { pdfjs, PDFLib };
   return libs;
 }

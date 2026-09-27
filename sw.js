@@ -1,7 +1,7 @@
 // Erzeugt von werkzeuge/sw-bauen.mjs — nicht von Hand ändern.
 // Hält die App offline bereit. Es werden nur die eigenen Dateien zwischengespeichert;
 // Angebote und Einseiter landen nie im Cache.
-const VERSION = 'fd883e1ad3b8';
+const VERSION = '83f10086f3ff';
 const DATEIEN = [
   "./",
   "app.css",
@@ -16,6 +16,7 @@ const DATEIEN = [
   "kern/highlights.js",
   "kern/import.js",
   "kern/modell.js",
+  "kern/nachruestung.js",
   "kern/parser.js",
   "kern/renderer.js",
   "kern/validator.js",
@@ -29,7 +30,8 @@ const DATEIEN = [
   "vendor/pako-inflate.mjs",
   "vendor/pdf-lib.esm.min.js",
   "vendor/pdfjs/pdf.min.mjs",
-  "vendor/pdfjs/pdf.worker.min.mjs"
+  "vendor/pdfjs/pdf.worker.min.mjs",
+  "vendor/pdfjs/worker.mjs"
 ];
 
 self.addEventListener('install', e => {
